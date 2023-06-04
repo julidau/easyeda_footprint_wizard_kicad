@@ -5,6 +5,21 @@ from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
 from easyeda2kicad.easyeda.easyeda_importer import EasyedaFootprintImporter
 from easyeda2kicad.kicad.export_kicad_footprint import *
 
+class SimpleBB:
+    def __init__(self):
+        self.upperleft = None
+    
+    def addXY(self, x, y):
+        if not self.upperleft:
+            self.upperleft = pcbnew.VECTOR2I(x,y)
+            return
+
+        self.upperleft.x = min(self.upperleft.x,x)
+        self.upperleft.y = min(self.upperleft.y, y)
+
+    def addPt(self, pt):
+        self.addXY(pt.x, pt.y)
+
 class EasyedaWizard(FootprintWizard):
     def __init__(self):
         FootprintWizard.__init__(self)
@@ -251,23 +266,26 @@ class EasyedaWizard(FootprintWizard):
 
         # shapes
         self.draw.TransformTranslate(mmi(-self.input.bbox.x), mmi(-self.input.bbox.y))
+        
+        bb = SimpleBB()
 
         # For rectangles
         for ee_rectangle in self.input.rectangles:
             self.draw.SetLayer(get_or(pad_layers, ee_rectangle.layer_id) or pcbnew.F_Fab)
             self.draw.SetLineThickness(mmi(max(ee_rectangle.stroke_width, 0.01)))
-            
+
             self.draw.Box(ee_rectangle.x, ee_rectangle.y, ee_rectangle.width, ee_rectangle.height)
     
         # "Tracks" (probably lines ? )
         for ee_track in self.input.tracks:
             self.draw.SetLayer(get_or(pad_layers, ee_track.layer_id) or pcbnew.F_Fab)
             self.draw.SetLineThickness(mmi(max(ee_track.stroke_width, 0.01)))
-            #self.draw.TransformTranslate(ee_track)
 
             # Generate line
             point_list = [fp_to_ki(point) for point in ee_track.points.split(" ")]
             point_list = [sizexy(point_list[i], point_list[i+1]) for i in range(0, len(point_list), 2)]
+            list(map(bb.addPt, point_list))
+
             self.draw.Polyline(point_list)
 
         # For circles
@@ -279,7 +297,8 @@ class EasyedaWizard(FootprintWizard):
             if not filled:
                 self.draw.SetLineThickness(mmi(ee_circle.stroke_width))
 
-            self.draw.Circle(mmi(ee_circle.cx), mmi(ee_circle.cy), ee_circle.radius, filled=filled)
+            bb.addPt(sizexy(ee_circle.cx - ee_circle.radius, ee_circle.cy + ee_circle.radius))
+            self.draw.Circle(mmi(ee_circle.cx), mmi(ee_circle.cy), mmi(ee_circle.radius), filled=filled)
 
         # For arcs
         for ee_arc in self.input.arcs:
@@ -356,10 +375,22 @@ class EasyedaWizard(FootprintWizard):
 
             text.SetTextSize(mmi(max(ee_text.font_size, 1)))
             text.SetTextThickness(mmi(max(ee_text.stroke_width, 0.01)))
-
             text.SetVisible(bool(ee_text.is_displayed))
             text.SetTextAngleDegrees(ee_text.rotation)
 
             text.SetText(ee_text.text)
 
             self.module.Add(text)    
+        
+        # hide the default value text 
+        self.module.Value().SetVisible(False)
+        
+        # set reference text to be above footprint shapes
+        if bb.upperleft:
+            self.module.Reference().SetPos0(self.draw.TransformPoint(bb.upperleft.x, bb.upperleft.y))
+            self.module.Reference().SetPosition(self.module.Reference().GetPos0())
+            self.module.Reference().SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_BOTTOM)
+
+        # set LCSC number as description
+        number = self.GetParam("Part", "LCSC Number").value
+        self.module.SetDescription(number)
