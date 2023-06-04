@@ -123,7 +123,7 @@ class EasyedaWizard(FootprintWizard):
         backvia_layer_set.AddLayer(pcbnew.B_Paste)
 
         # copied from easyeda2kicad layer set
-        layers = {
+        pad_layers = {
             # smd vias
             1: pcbnew.PAD.SMDMask(), # smdmask is smd pad for front copper
             2: backvia_layer_set,
@@ -131,6 +131,24 @@ class EasyedaWizard(FootprintWizard):
             3: pcbnew.F_SilkS,
             13: pcbnew.F_Fab,
             15: pcbnew.Dwgs_User,
+        }
+
+        layers = {
+            1: pcbnew.F_Cu, 
+            2: pcbnew.B_Cu,
+            3: pcbnew.F_SilkS,
+            4: pcbnew.B_SilkS,
+            5: pcbnew.F_Paste,
+            6: pcbnew.B_Paste,
+            7: pcbnew.F_Mask,
+            8: pcbnew.B_Mask,
+            10: pcbnew.Edge_Cuts,
+            11: pcbnew.Edge_Cuts,
+            12: pcbnew.Cmts_User,
+            13: pcbnew.F_Fab,
+            14: pcbnew.B_Fab,
+            15: pcbnew.Dwgs_User,
+            101: pcbnew.F_Fab,
         }
 
         # small helper functions
@@ -173,7 +191,7 @@ class EasyedaWizard(FootprintWizard):
                 # SMD pad
                 pad = pcbnew.PAD(self.module)
                 pad.SetAttribute(pcbnew.PAD_ATTRIB_SMD)
-                pad.SetLayerSet(get_or(layers, ee_pad.layer_id) or pad.SMDMask())
+                pad.SetLayerSet(get_or(pad_layers, ee_pad.layer_id) or pad.SMDMask())
 
             point_list = [fp_to_ki(point) for point in ee_pad.points.split(" ")]
 
@@ -194,10 +212,12 @@ class EasyedaWizard(FootprintWizard):
             else:
                 pad.SetSize(sizexy(max(ee_pad.width, 0.01), max(ee_pad.height, 0.01)))
 
-            pad.SetShape(shape)
+                # easyeda footprints with custom shapes seem to contain the  
+                # pretransformed points.
+                # rotation should therefore only be set for non-custom pad shapes
+                pad.SetOrientationDegrees(angle_to_ki(ee_pad.rotation))
 
-            if not isnan(ee_pad.rotation):
-                pad.SetOrientation(pcbnew.EDA_ANGLE(float(ee_pad.rotation), pcbnew.DEGREES_T))
+            pad.SetShape(shape)
             
             # normalize pad name
             pinname = ee_pad.number
@@ -212,72 +232,64 @@ class EasyedaWizard(FootprintWizard):
             self.module.Add(pad)
 #            print("added pad: {} {} {} {}".format(ee_pad.number, ee_pad.center_x, ee_pad.center_y, ee_pad.shape))
 #            print(f"pos: {ee_pad.center_x} {ee_pad.center_y}")
+    
+        for ee_hole in self.input.holes:
+            # holes are NPT pads with size == drillsize and circular
+            pad = pcbnew.PAD(self.module)
+            pad.SetAttribute(pcbnew.PAD_ATTRIB_NPTH)
+
+            pad.SetPos0(posxy(ee_hole.center_x, ee_hole.center_y))
+            pad.SetPosition(pad.GetPos0())
+
+            pad.SetDrillShape(pcbnew.PAD_DRILL_SHAPE_CIRCLE)
+            pad.SetDrillSize(sizexy(ee_hole.radius*2, ee_hole.radius*2))
+
+            pad.SetShape(pcbnew.PAD_SHAPE_CIRCLE)
+            pad.SetSize(pad.GetDrillSize())
+            pad.SetLayerSet(pad.UnplatedHoleMask())
+            self.module.Add(pad)
 
         # shapes
-        self.draw.TransformTranslate(-self.input.bbox.x, -self.input.bbox.y)
+        self.draw.TransformTranslate(mmi(-self.input.bbox.x), mmi(-self.input.bbox.y))
 
         # For rectangles
         for ee_rectangle in self.input.rectangles:
-            self.draw.SetLayer(get_or(layers, ee_rectangle.layer_id) or pcbnew.F_Fab)
+            self.draw.SetLayer(get_or(pad_layers, ee_rectangle.layer_id) or pcbnew.F_Fab)
             self.draw.SetLineThickness(mmi(max(ee_rectangle.stroke_width, 0.01)))
-
+            
             self.draw.Box(ee_rectangle.x, ee_rectangle.y, ee_rectangle.width, ee_rectangle.height)
-            print("box ", ee_rectangle.layer_id, ee_rectangle.x, ee_rectangle.y)
-
     
-        # For tracks
+        # "Tracks" (probably lines ? )
         for ee_track in self.input.tracks:
-            ki_track = KiFootprintTrack(
-                layers=KI_PAD_LAYER[ee_track.layer_id]
-                if ee_track.layer_id in KI_PAD_LAYER
-                else "F.Fab",
-                stroke_width=max(ee_track.stroke_width, 0.01),
-            )
-            self.draw.SetLayer(get_or(layers, ee_track.layer_id) or pcbnew.F_Fab)
+            self.draw.SetLayer(get_or(pad_layers, ee_track.layer_id) or pcbnew.F_Fab)
             self.draw.SetLineThickness(mmi(max(ee_track.stroke_width, 0.01)))
+            #self.draw.TransformTranslate(ee_track)
 
             # Generate line
             point_list = [fp_to_ki(point) for point in ee_track.points.split(" ")]
-            print("track ", ee_track.layer_id, point_list)
-
             point_list = [sizexy(point_list[i], point_list[i+1]) for i in range(0, len(point_list), 2)]
             self.draw.Polyline(point_list)
 
-
-        return 
-    
-        # For holes
-        for ee_hole in self.input.holes:
-            ki_hole = KiFootprintHole(
-                pos_x=ee_hole.center_x - self.input.bbox.x,
-                pos_y=ee_hole.center_y - self.input.bbox.y,
-                size=ee_hole.radius * 2,
-            )
-
-            self.output.holes.append(ki_hole)
-
         # For circles
         for ee_circle in self.input.circles:
-            ki_circle = KiFootprintCircle(
-                cx=ee_circle.cx - self.input.bbox.x,
-                cy=ee_circle.cy - self.input.bbox.y,
-                end_x=0.0,
-                end_y=0.0,
-                layers=KI_LAYERS[ee_circle.layer_id]
-                if ee_circle.layer_id in KI_LAYERS
-                else "F.Fab",
-                stroke_width=max(ee_circle.stroke_width, 0.01),
-            )
-            ki_circle.end_x = ki_circle.cx + ee_circle.radius
-            ki_circle.end_y = ki_circle.cy
-            self.output.circles.append(ki_circle)
+            self.draw.SetLayer(get_or(pad_layers, ee_circle.layer_id) or pcbnew.F_Fab)
+            
+            # fill circles with line thickness ~= 0
+            filled = ee_circle.stroke_width <= 0.01
+            if not filled:
+                self.draw.SetLineThickness(mmi(ee_circle.stroke_width))
 
+            self.draw.Circle(mmi(ee_circle.cx), mmi(ee_circle.cy), ee_circle.radius, filled=filled)
 
         # For arcs
         for ee_arc in self.input.arcs:
+            # FIXME: implement ARCs
+            continue
+
             arc_path = (
                 ee_arc.path.replace(",", " ").replace("M ", "M").replace("A ", "A")
             )
+
 
             start_x, start_y = arc_path.split("A")[0][1:].split(" ", 1)
             start_x = fp_to_ki(start_x) - self.input.bbox.x
@@ -329,29 +341,25 @@ class EasyedaWizard(FootprintWizard):
 
         # For texts
         for ee_text in self.input.texts:
-            ki_text = KiFootprintText(
-                pos_x=ee_text.center_x - self.input.bbox.x,
-                pos_y=ee_text.center_y - self.input.bbox.y,
-                orientation=angle_to_ki(ee_text.rotation),
-                text=ee_text.text,
-                layers=KI_LAYERS[ee_text.layer_id]
-                if ee_text.layer_id in KI_LAYERS
-                else "F.Fab",
-                font_size=max(ee_text.font_size, 1),
-                thickness=max(ee_text.stroke_width, 0.01),
-                display=" hide" if ee_text.is_displayed is False else "",
-                mirror="",
-            )
-            ki_text.layers = (
-                ki_text.layers.replace(".SilkS", ".Fab")
-                if ee_text.type == "N"
-                else ki_text.layers
-            )
-            ki_text.mirror = " mirror" if ki_text.layers[0] == "B" else ""
-            self.output.texts.append(ki_text)
+            text = pcbnew.FP_TEXT(self.module)
+            text.SetPos0(posxy(ee_text.center_x, ee_text.center_y))
+            text.SetPosition(text.GetPos0())
+            text.SetLayer(get_or(layers, ee_text.layer_id) or pcbnew.F_Fab)
+            
+            if ee_text.type == "N":
+                # rebind slik to fab if type is "N" ? 
+                text.SetLayer(get_or({pcbnew.F_SilkS: pcbnew.F_Fab, pcbnew.B_SilkS: pcbnew.B_Fab}, text.GetLayer()) or text.GetLayer())
+            
+            if pcbnew.IsBackLayer(ee_text.GetLayer()):
+                # mirror text on bottom layers
+                text.SetMirrored(True)
 
-        # TODO: implement
-        #ki_footprint = ExporterFootprintKicad(footprint=self.cad_data)
+            text.SetTextSize(mmi(max(ee_text.font_size, 1)))
+            text.SetTextThickness(mmi(max(ee_text.stroke_width, 0.01)))
 
-        return
-    
+            text.SetVisible(bool(ee_text.is_displayed))
+            text.SetTextAngleDegrees(ee_text.rotation)
+
+            text.SetText(ee_text.text)
+
+            self.module.Add(text)    
