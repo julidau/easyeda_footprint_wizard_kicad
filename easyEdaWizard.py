@@ -1272,5 +1272,3 @@ class EasyedaWizard(FootprintWizard):
 
         return
     
-EasyedaWizard().register()
-
