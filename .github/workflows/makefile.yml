@@ -1,0 +1,23 @@
+name: Makefile CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Package
+      run: make
+
+    - name: Upload package
+      uses: actions/upload-artifact@v3.1.2
+      with:
+        path: package.zip
