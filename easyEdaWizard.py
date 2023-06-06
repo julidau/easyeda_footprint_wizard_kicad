@@ -394,3 +394,6 @@ class EasyedaWizard(FootprintWizard):
         # set LCSC number as description
         number = self.GetParam("Part", "LCSC Number").value
         self.module.SetDescription(number)
+
+# register singleton
+EasyedaWizard().register()
