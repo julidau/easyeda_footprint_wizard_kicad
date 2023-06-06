@@ -27,9 +27,8 @@ $(OUTFILENAME): $(OUTDIR)
 	cp $(OUTDIR)/$@ $@
 
 $(OUTDIR):
-	mkdir -p $@
-
-	mkdir -p $@/{plugins,resources}
+	mkdir -p $@/plugins
+	
 	cp package/metadata_template.json $@/metadata.json
 
 	# bundle all script dependencies to single python file using stickytape 
