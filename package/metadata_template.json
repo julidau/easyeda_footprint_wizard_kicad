@@ -1,0 +1,23 @@
+{
+    "$schema": "https://go.kicad.org/pcm/schemas/v1",
+    "name": "EasyEDA_footprint_wizard",
+    "description": "import easyEDA footprints",
+    "description_full": "A footprint wizard implementation for importing easyEDA footprints based on easyeda2kicad",
+    "identifier": "com.github.julidau.easyeda-footprint-wizard-kicad",
+    "type": "plugin",
+    "author": {
+        "name": "Julian Daube",
+        "contact": {}
+    },
+    "license": "GPL-3.0",
+    "resources": {
+        "homepage": "https://github.com/julidau/easyeda_footprint_wizard_kicad"
+    },
+    "versions": [
+        {
+            "version": "1.0",
+            "status": "stable",
+            "kicad_version": "6.0"
+        }
+    ]
+}
