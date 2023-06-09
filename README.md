@@ -1,5 +1,7 @@
 # easyeda_footprint_wizard_kicad
 
+**This plugin is currently only tested to work with kicad v7.0.5 and python 3.11. Is is know to not work with kicad v6 due to an API incompatibility. See #2**
+
 A footprint wizard implementation of the easyeda2kicad-project. Aims to suport 3d model import and footprint generation from a LCSC part number without the "hassle" of calling a CLI tool.
 
 # Usage
