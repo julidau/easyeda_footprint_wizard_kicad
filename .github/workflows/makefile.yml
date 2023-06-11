@@ -25,4 +25,4 @@ jobs:
     - name: Upload package
       uses: actions/upload-artifact@v3.1.2
       with:
-        path: package.zip
+        path: build/package.zip

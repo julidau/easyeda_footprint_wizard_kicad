@@ -24,7 +24,6 @@ $(OUTFILENAME): $(OUTDIR)
 
 	@echo zip build dir
 	cd $(OUTDIR) && zip -r $@ *
-	cp $(OUTDIR)/$@ $@
 
 $(OUTDIR):
 	mkdir -p $@/plugins
