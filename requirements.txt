@@ -1,0 +1,2 @@
+expandvars
+easyeda2kicad

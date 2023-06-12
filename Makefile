@@ -23,9 +23,10 @@ $(OUTFILENAME): $(OUTDIR)
 	find $(OUTDIR) -iname *.dist-info -type d -exec rm -rf {} \+
 
 	@echo zip build dir
+	@echo zipping directory
 	cd $(OUTDIR) && zip -r $@ *
 
-$(OUTDIR):
+$(OUTDIR): easyEdaWizard.py FootprintWizardBase.py
 	mkdir -p $@/plugins
 	
 	cp package/metadata_template.json $@/metadata.json
@@ -38,7 +39,7 @@ $(OUTDIR):
 	mv $@/temp.py  $@/plugins/__init__.py 
 
 	# now also download easyeda2kicad to the plugins directory
-	pip install -t $(OUTDIR)/plugins/ easyeda2kicad
+	pip install -t $(OUTDIR)/plugins/ -r requirements.txt
 
 .PHONY: clean
 

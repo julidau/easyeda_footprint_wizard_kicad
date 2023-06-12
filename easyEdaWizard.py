@@ -1,4 +1,6 @@
 import pcbnew
+import os
+from expandvars import expandvars,UnboundVariable
 
 
 kicad_version = pcbnew.Version()
@@ -17,8 +19,9 @@ from FootprintWizardBase_v7 import FootprintWizard as FootprintWizardV7
 base = FootprintWizardV6 if is_kicad_6 else FootprintWizardV7 if is_kicad_7 else None
 
 from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
-from easyeda2kicad.easyeda.easyeda_importer import EasyedaFootprintImporter
+from easyeda2kicad.easyeda.easyeda_importer import EasyedaFootprintImporter, Easyeda3dModelImporter
 from easyeda2kicad.kicad.export_kicad_footprint import *
+from easyeda2kicad.kicad.export_kicad_3d_model import Exporter3dModelKicad
 
 class SimpleBB:
     def __init__(self):
@@ -53,7 +56,8 @@ class EasyedaWizard(base):
         # usb c port (mixed pads): C2988369
         self.AddParam("Part", "LCSC Number", self.uString, "C80192")
         
-        self.AddParam("Part", "Import 3d Model", self.uBool, True)
+        self.AddParam("Part", "3d Model Path", self.uString, "${KIPRJMOD}/3dshapes/")
+        self.AddParam("Part", "Import 3d Model", self.uBool, False)
 
     @property
     def part(self):
@@ -83,6 +87,25 @@ class EasyedaWizard(base):
         # check for valid part number
         self.checkPartNumber()
 
+        if self.GetParam("Part", "Import 3d Model").value:
+            try:
+                self.model3d_outpath = self.GetParam("Part", "3d Model Path").value
+                self.model3d_outpath_expanded = expandvars(self.model3d_outpath, nounset=True)
+
+            except UnboundVariable as e:
+                errstr = f"could not expand some environment variables in path: {e}"
+                if  "KIPRJMOD" in str(e):
+                    errstr = "KIPRJMOD not set. Pcbnew must be started once, otherwise path is not set."
+
+                self.GetParam("Part", "3d Model Path").AddError(errstr)
+
+                self.GetParam("Part", "Import 3d Model").AddError(f"Cannot download 3d model, model download path not found.")
+        
+            if not self.input.model_3d:
+                # this model has no 3d shape
+                self.GetParam("Part", "Import 3d Model").AddError(f"footprint has no 3d model associated")
+                return
+
     def GetValue(self):
         return "EasyEDA-{num}-{type}-{name}".format(
             num=self.part["LCSC Number"],
@@ -91,36 +114,68 @@ class EasyedaWizard(base):
         )
     
     def SetModule3DModel(self):
-        
+        self.model_3d = None
+
         if not self.GetParam("Part", "Import 3d Model").value:
             # user did not want 3d model import, so dont
-            return
-        
-        if not self.input.model_3d:
-            # this model has no 3d shape
             return
     
         self.input.model_3d.convert_to_mm()
 
-        # if self.input.model_3d.translation.z != 0:
-        #     self.input.model_3d.translation.z -= 1
-        # ki_3d_model_info = Ki3dModel(
-        #     name=self.input.model_3d.name,
-        #     translation=Ki3dModelBase(
-        #         x=round((self.input.model_3d.translation.x - self.input.bbox.x), 2),
-        #         y=-round(
-        #             (self.input.model_3d.translation.y - self.input.bbox.y), 2
-        #         ),
-        #         z=-round(self.input.model_3d.translation.z, 2),
-        #     ),
-        #     rotation=Ki3dModelBase(
-        #         x=(360 - self.input.model_3d.rotation.x) % 360,
-        #         y=(360 - self.input.model_3d.rotation.y) % 360,
-        #         z=(360 - self.input.model_3d.rotation.z) % 360,
-        #     ),
-        #     raw_wrl=None,
-        # )
-        # print(ki_3d_model_info)
+        #print("downloading 3d model...")
+
+        exporter = Exporter3dModelKicad(
+            model_3d=Easyeda3dModelImporter(
+                easyeda_cp_cad_data=self.cad_data, download_raw_3d_model=True
+            ).output
+        )
+
+        #exporter.export(lib_path=arguments["output"])
+        if exporter.output:
+            self.model3d_filepath = os.path.join(self.model3d_outpath, exporter.output.name + ".wrl")
+            self.model3d_filepath_expanded = expandvars(self.model3d_filepath, nounset=True)
+
+            # create target dir if not exists
+            os.makedirs(self.model3d_outpath_expanded, exist_ok=True)
+
+            # create and write output 3d file
+            with open(
+                file=self.model3d_filepath_expanded,
+                mode="w",
+                encoding="utf-8",
+            ) as my_lib:
+                my_lib.write(exporter.output.raw_wrl)
+
+            #print(f"downloaded and exported model to {outpath}")
+
+            # setup 3d model for footprint
+            self.model_3d = pcbnew.FP_3DMODEL()
+            self.model_3d.m_Filename = self.model3d_filepath
+            self.model_3d.m_Show = True
+
+    def UpdateAndAdd3dModule(self):
+        # Add 3d model to footprint after footprint generation to make sure bb is converted and valid
+        if not self.model_3d:
+            return
+        
+        footprintmodel = self.input.model_3d
+
+        # make sure roation angles are clamped to 0-360
+        self.model_3d.m_Rotation = pcbnew.VECTOR3D(*map(lambda x: (360 - x) % 360, [
+            footprintmodel.rotation.x, 
+            footprintmodel.rotation.y, 
+            footprintmodel.rotation.z
+        ])) 
+
+        self.model_3d.m_Offset = pcbnew.VECTOR3D(
+            round(footprintmodel.translation.x - self.input.bbox.x, 2),
+            round(-footprintmodel.translation.y + self.input.bbox.y, 2),
+            0
+            # NOTE: z translation seems to be incorrect from my testing, so hardcode to zero for now
+            #footprintmodel.translation.z
+        )
+
+        self.module.Add3DModel(self.model_3d)
 
     def BuildThisFootprint(self):
         # Convert dimension from easyeda to kicad
@@ -428,6 +483,9 @@ class EasyedaWizard(base):
         # set LCSC number as description
         number = self.GetParam("Part", "LCSC Number").value
         self.module.SetDescription(number)
+
+        # Add 3d model if defined and requested
+        self.UpdateAndAdd3dModule()
 
 # register singleton
 EasyedaWizard().register()
