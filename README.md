@@ -8,6 +8,8 @@ A footprint wizard implementation of the easyeda2kicad-project. Aims to suport 3
 
 After installation, a new "EasyEDA" wizard should be in the list of footprint wizards. Give it an LCSC number and watch it go :)
 
+<video src="doc/demo.mp4" />
+
 # Installation
 
 This package can be installed using the Kicad Content Manager. To do this, download the `package.zip` from the releases tab. Then start the Kicad Plugin Manager, choose `Install from File` and select the downloaded zip file. If all goes well, then the wizard should show up in the Footprint editor now. 
