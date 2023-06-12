@@ -1,5 +1,20 @@
-from FootprintWizardBase import FootprintWizard
 import pcbnew
+
+
+kicad_version = pcbnew.Version()
+kicad_major = int(kicad_version.split(".")[0]) 
+is_kicad_6 = kicad_major == 6
+is_kicad_7 = kicad_major == 7
+
+if not is_kicad_6 and not is_kicad_6:
+    raise ImportError(f"unsupported kicad version {kicad_version}")
+
+from FootprintWizardBase_v6 import FootprintWizard as FootprintWizardV6
+from FootprintWizardBase_v7 import FootprintWizard as FootprintWizardV7
+
+# why am i doing this junk you ask ? Well, stickytape requires all imports to be present, 
+# and i'm pretty sure conditional imports are not supported. So lets use this workaround :)
+base = FootprintWizardV6 if is_kicad_6 else FootprintWizardV7 if is_kicad_7 else None
 
 from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
 from easyeda2kicad.easyeda.easyeda_importer import EasyedaFootprintImporter
@@ -14,15 +29,15 @@ class SimpleBB:
             self.upperleft = pcbnew.VECTOR2I(x,y)
             return
 
-        self.upperleft.x = min(self.upperleft.x,x)
+        self.upperleft.x = min(self.upperleft.x, x)
         self.upperleft.y = min(self.upperleft.y, y)
 
     def addPt(self, pt):
         self.addXY(pt.x, pt.y)
 
-class EasyedaWizard(FootprintWizard):
+class EasyedaWizard(base):
     def __init__(self):
-        FootprintWizard.__init__(self)
+        base.__init__(self)
 
         self.api = EasyedaApi()
 
@@ -169,9 +184,20 @@ class EasyedaWizard(FootprintWizard):
         # small helper functions
         get_or = lambda d,k: d[k] if k in d else None
         mmi = lambda x: pcbnew.FromMM(x)
+        
+        # use different size types depending on kicad version
+        if is_kicad_6:
+            sizexy = lambda x,y: pcbnew.wxSize(mmi(x), mmi(y))
 
-        sizexy = lambda x,y: pcbnew.VECTOR2I(mmi(x), mmi(y))
-        posxy = lambda x,y: sizexy(x-self.input.bbox.x, y - self.input.bbox.y)
+            relposxy = lambda x,y: pcbnew.wxPoint(mmi(x), mmi(y))
+            posxy = lambda x,y: relposxy(x-self.input.bbox.x, y-self.input.bbox.y)
+        elif is_kicad_7:
+            sizexy = lambda x,y: pcbnew.VECTOR2I(mmi(x), mmi(y))
+            
+            relposxy = sizexy
+            posxy = lambda x,y: sizexy(x-self.input.bbox.x, y - self.input.bbox.y)
+        else: 
+            raise RuntimeError("unsupported Kicad Version (5 or lower)")
 
         for ee_pad in self.input.pads:
             shape = get_or(pad_shapes, ee_pad.shape) or pcbnew.PAD_SHAPE_CUSTOM
@@ -215,15 +241,20 @@ class EasyedaWizard(FootprintWizard):
                     print("PAD: custom shape has no points: ", ee_pad.number)
                     continue
                 
-                polygon = pcbnew.VECTOR_VECTOR2I()
+                if is_kicad_7:
+                    polygon = pcbnew.VECTOR_VECTOR2I()
+                else:
+                    polygon = pcbnew.wxPoint_Vector()
+
                 for i in range(0, len(point_list), 2):
-                    polygon.append(sizexy(point_list[i]-ee_pad.center_x,point_list[i+1]-ee_pad.center_y))
+                    polygon.append(relposxy(point_list[i]-ee_pad.center_x,point_list[i+1]-ee_pad.center_y))
+
 
                 # add polygon as custom shape
                 pad.AddPrimitivePoly(polygon,0,True)
 
                 # set base shape size to 0,0
-                pad.SetSize(pcbnew.VECTOR2I(0,0))
+                pad.SetSize(sizexy(0,0))
             else:
                 pad.SetSize(sizexy(max(ee_pad.width, 0.01), max(ee_pad.height, 0.01)))
 
@@ -389,7 +420,10 @@ class EasyedaWizard(FootprintWizard):
         if bb.upperleft:
             self.module.Reference().SetPos0(self.draw.TransformPoint(bb.upperleft.x, bb.upperleft.y))
             self.module.Reference().SetPosition(self.module.Reference().GetPos0())
-            self.module.Reference().SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_BOTTOM)
+            if is_kicad_7:
+                self.module.Reference().SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_BOTTOM)
+            elif is_kicad_6:
+                self.module.Reference().SetVertJustify(pcbnew.GR_TEXT_VJUSTIFY_BOTTOM)
 
         # set LCSC number as description
         number = self.GetParam("Part", "LCSC Number").value
