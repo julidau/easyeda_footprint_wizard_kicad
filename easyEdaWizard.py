@@ -153,6 +153,16 @@ class EasyedaWizard(base):
             self.model_3d.m_Filename = self.model3d_filepath
             self.model_3d.m_Show = True
 
+    def vector3d(x,y,z):
+        if is_kicad_7:
+            return pcbnew.VECTOR3D(x,y,z)
+
+        result = pcbnew.VECTOR3D()
+        result.x = x
+        result.y = y
+        result.z = z
+        return result
+
     def UpdateAndAdd3dModule(self):
         # Add 3d model to footprint after footprint generation to make sure bb is converted and valid
         if not self.model_3d:
@@ -161,13 +171,13 @@ class EasyedaWizard(base):
         footprintmodel = self.input.model_3d
 
         # make sure roation angles are clamped to 0-360
-        self.model_3d.m_Rotation = pcbnew.VECTOR3D(*map(lambda x: (360 - x) % 360, [
+        self.model_3d.m_Rotation = EasyedaWizard.vector3d(*map(lambda x: (360 - x) % 360, [
             footprintmodel.rotation.x, 
             footprintmodel.rotation.y, 
             footprintmodel.rotation.z
-        ])) 
+        ]))
 
-        self.model_3d.m_Offset = pcbnew.VECTOR3D(
+        self.model_3d.m_Offset = EasyedaWizard.vector3d(
             round(footprintmodel.translation.x - self.input.bbox.x, 2),
             round(-footprintmodel.translation.y + self.input.bbox.y, 2),
             0
