@@ -8,7 +8,7 @@ A footprint wizard implementation of the easyeda2kicad-project. Aims to suport 3
 
 After installation, a new "EasyEDA" wizard should be in the list of footprint wizards. Give it an LCSC number and watch it go :)
 
-![demo](doc/demo.mp4)
+![demo](doc/demo.gif)
 
 # Installation
 
