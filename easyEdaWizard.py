@@ -8,7 +8,7 @@ kicad_major = int(kicad_version.split(".")[0])
 is_kicad_6 = kicad_major == 6
 is_kicad_7 = kicad_major == 7
 
-if not is_kicad_6 and not is_kicad_6:
+if not (is_kicad_6 or is_kicad_7):
     raise ImportError(f"unsupported kicad version {kicad_version}")
 
 from FootprintWizardBase_v6 import FootprintWizard as FootprintWizardV6
