@@ -1,7 +1,12 @@
+import os
+import sys
+
+# add our location to python path
+sys.path.append(os.path.dirname(__file__))
+
 import pcbnew
 import os
 from expandvars import expandvars,UnboundVariable
-
 
 kicad_version = pcbnew.Version()
 kicad_major = int(kicad_version.split(".")[0]) 
@@ -10,6 +15,7 @@ is_kicad_7 = kicad_major == 7
 
 if not (is_kicad_6 or is_kicad_7):
     raise ImportError(f"unsupported kicad version {kicad_version}")
+
 
 from FootprintWizardBase_v6 import FootprintWizard as FootprintWizardV6
 from FootprintWizardBase_v7 import FootprintWizard as FootprintWizardV7
@@ -248,7 +254,9 @@ class EasyedaWizard(base):
 
         # small helper functions
         get_or = lambda d,k: d[k] if k in d else None
+
         mmi = lambda x: pcbnew.FromMM(x)
+        
         
         # use different size types depending on kicad version
         if is_kicad_6:
@@ -265,7 +273,7 @@ class EasyedaWizard(base):
             raise RuntimeError("unsupported Kicad Version (5 or lower)")
 
         for ee_pad in self.input.pads:
-            shape = get_or(pad_shapes, ee_pad.shape) or pcbnew.PAD_SHAPE_CUSTOM
+            shape = get_or(pad_shapes, ee_pad.shape.strip())
 
             if ee_pad.hole_radius > 0:
                 # PAD with hole, figure out drill size
@@ -312,7 +320,10 @@ class EasyedaWizard(base):
                     polygon = pcbnew.wxPoint_Vector()
 
                 for i in range(0, len(point_list), 2):
-                    polygon.append(relposxy(point_list[i]-ee_pad.center_x,point_list[i+1]-ee_pad.center_y))
+                    try:
+                        polygon.append(relposxy(point_list[i]-ee_pad.center_x,point_list[i+1]-ee_pad.center_y))
+                    except TypeError as e:
+                        raise ValueError(f'{ee_pad.points.split(" ")}, {point_list}, {point_list[i]}, {ee_pad.center_x}, {ee_pad.center_y}')
 
 
                 # add polygon as custom shape
