@@ -26,7 +26,7 @@ $(OUTFILENAME): $(OUTDIR)
 	@echo zipping directory
 	cd $(OUTDIR) && zip -r $@ *
 
-$(OUTDIR): easyEdaWizard.py FootprintWizardBase_v6.py FootprintWizardBase_v7.py
+$(OUTDIR): easyEdaWizard.py FootprintWizardBase_v6.py FootprintWizardBase_v7.py FootprintWizardBase_v8.py
 	mkdir -p $@/plugins
 	
 	cp package/metadata_template.json $@/metadata.json
