@@ -2,7 +2,7 @@
 
 A footprint wizard implementation of the easyeda2kicad-project. Aims to suport 3d model import and footprint generation from a LCSC part number without the "hassle" of calling a CLI tool.
 
-This plugin should work with kicad 7 and kicad 6.
+This plugin should work with kicad 8,7 and kicad 6.
 
 # Usage
 
