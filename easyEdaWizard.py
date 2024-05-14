@@ -12,17 +12,19 @@ kicad_version = pcbnew.Version()
 kicad_major = int(kicad_version.split(".")[0]) 
 is_kicad_6 = kicad_major == 6
 is_kicad_7 = kicad_major == 7
+is_kicad_8 = kicad_major == 8
 
-if not (is_kicad_6 or is_kicad_7):
+if not (is_kicad_6 or is_kicad_7 or is_kicad_8):
     raise ImportError(f"unsupported kicad version {kicad_version}")
 
 
 from FootprintWizardBase_v6 import FootprintWizard as FootprintWizardV6
 from FootprintWizardBase_v7 import FootprintWizard as FootprintWizardV7
+from FootprintWizardBase_v8 import FootprintWizard as FootprintWizardV8
 
 # why am i doing this junk you ask ? Well, stickytape requires all imports to be present, 
 # and i'm pretty sure conditional imports are not supported. So lets use this workaround :)
-base = FootprintWizardV6 if is_kicad_6 else FootprintWizardV7 if is_kicad_7 else None
+base = FootprintWizardV6 if is_kicad_6 else FootprintWizardV7 if is_kicad_7 else FootprintWizardV8 if is_kicad_8 else None
 
 from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
 from easyeda2kicad.easyeda.easyeda_importer import EasyedaFootprintImporter, Easyeda3dModelImporter
@@ -160,7 +162,7 @@ class EasyedaWizard(base):
             self.model_3d.m_Show = True
 
     def vector3d(x,y,z):
-        if is_kicad_7:
+        if is_kicad_7 or is_kicad_8:
             return pcbnew.VECTOR3D(x,y,z)
 
         result = pcbnew.VECTOR3D()
@@ -264,7 +266,7 @@ class EasyedaWizard(base):
 
             relposxy = lambda x,y: pcbnew.wxPoint(mmi(x), mmi(y))
             posxy = lambda x,y: relposxy(x-self.input.bbox.x, y-self.input.bbox.y)
-        elif is_kicad_7:
+        elif is_kicad_7 or is_kicad_8:
             sizexy = lambda x,y: pcbnew.VECTOR2I(mmi(x), mmi(y))
             
             relposxy = sizexy
@@ -314,7 +316,7 @@ class EasyedaWizard(base):
                     print("PAD: custom shape has no points: ", ee_pad.number)
                     continue
                 
-                if is_kicad_7:
+                if is_kicad_7 or is_kicad_8:
                     polygon = pcbnew.VECTOR_VECTOR2I()
                 else:
                     polygon = pcbnew.wxPoint_Vector()
@@ -348,7 +350,8 @@ class EasyedaWizard(base):
 
             pad.SetName(pinname)
             # Pos0 ?? must be set otherwise all pads will have 0,0 positions AFTER import to footprint editor 
-            pad.SetPos0(posxy(ee_pad.center_x, ee_pad.center_y))
+            if not is_kicad_8:
+                pad.SetPos0(posxy(ee_pad.center_x, ee_pad.center_y))
             pad.SetPosition(posxy(ee_pad.center_x, ee_pad.center_y))
             
             self.module.Add(pad)
@@ -360,8 +363,11 @@ class EasyedaWizard(base):
             pad = pcbnew.PAD(self.module)
             pad.SetAttribute(pcbnew.PAD_ATTRIB_NPTH)
 
-            pad.SetPos0(posxy(ee_hole.center_x, ee_hole.center_y))
-            pad.SetPosition(pad.GetPos0())
+            if not is_kicad_8:
+                pad.SetPos0(posxy(ee_hole.center_x, ee_hole.center_y))
+                pad.SetPosition(pad.GetPos0())
+            else:
+                pad.SetPosition(posxy(ee_hole.center_x, ee_hole.center_y))
 
             pad.SetDrillShape(pcbnew.PAD_DRILL_SHAPE_CIRCLE)
             pad.SetDrillSize(sizexy(ee_hole.radius*2, ee_hole.radius*2))
@@ -468,8 +474,11 @@ class EasyedaWizard(base):
         # For texts
         for ee_text in self.input.texts:
             text = pcbnew.FP_TEXT(self.module)
-            text.SetPos0(posxy(ee_text.center_x, ee_text.center_y))
-            text.SetPosition(text.GetPos0())
+            if not is_kicad_8:
+                text.SetPos0(posxy(ee_text.center_x, ee_text.center_y))
+                text.SetPosition(text.GetPos0())
+            else:
+                text.SetPosition(posxy(ee_text.center_x, ee_text.center_y))
             text.SetLayer(get_or(layers, ee_text.layer_id) or pcbnew.F_Fab)
             
             if ee_text.type == "N":
@@ -489,21 +498,39 @@ class EasyedaWizard(base):
 
             self.module.Add(text)    
         
+        if is_kicad_8:
+            #reference and value
+            text_size = self.GetTextSize()  # IPC nominal
+
+            # Add a extra text (${REFERENCE}) on the F_Fab layer
+            extra_text = pcbnew.PCB_TEXT( self.module )
+            extra_text.SetLayer( pcbnew.F_Fab )
+            extra_text.SetPosition( pcbnew.VECTOR2I( 0, 0) )
+            extra_text.SetTextSize( pcbnew.VECTOR2I( text_size, text_size ) )
+            extra_text.SetText( "${REFERENCE}" )
+            self.module.Add( extra_text )
+
         # hide the default value text 
         self.module.Value().SetVisible(False)
         
         # set reference text to be above footprint shapes
         if bb.upperleft:
-            self.module.Reference().SetPos0(self.draw.TransformPoint(bb.upperleft.x, bb.upperleft.y))
-            self.module.Reference().SetPosition(self.module.Reference().GetPos0())
-            if is_kicad_7:
+            if not is_kicad_8:
+                self.module.Reference().SetPos0(self.draw.TransformPoint(bb.upperleft.x, bb.upperleft.y))
+                self.module.Reference().SetPosition(self.module.Reference().GetPos0())
+            else:
+                self.module.Reference().SetPosition(self.draw.TransformPoint(bb.upperleft.x, bb.upperleft.y))
+            if is_kicad_7 or is_kicad_8:
                 self.module.Reference().SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_BOTTOM)
             elif is_kicad_6:
                 self.module.Reference().SetVertJustify(pcbnew.GR_TEXT_VJUSTIFY_BOTTOM)
 
         # set LCSC number as description
         number = self.GetParam("Part", "LCSC Number").value
-        self.module.SetDescription(number)
+        if not is_kicad_8:
+            self.module.SetDescription(number)
+        else:
+            self.module.SetLibDescription(number)
 
         # Add 3d model if defined and requested
         self.UpdateAndAdd3dModule()
