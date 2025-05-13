@@ -1,11 +1,3 @@
-<!--
- * @Descripttion: 
- * @version: 
- * @Author: weety
- * @Date: 2025-05-13 15:55:56
- * @LastEditors: weety
- * @LastEditTime: 2025-05-13 22:51:02
--->
 # easyeda_footprint_wizard_kicad
 
 A footprint wizard implementation of the easyeda2kicad-project. Aims to suport 3d model import and footprint generation from a LCSC part number without the "hassle" of calling a CLI tool.
