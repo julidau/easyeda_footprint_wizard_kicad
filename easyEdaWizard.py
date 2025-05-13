@@ -13,18 +13,20 @@ kicad_major = int(kicad_version.split(".")[0])
 is_kicad_6 = kicad_major == 6
 is_kicad_7 = kicad_major == 7
 is_kicad_8 = kicad_major == 8
+is_kicad_9 = kicad_major == 9
 
-if not (is_kicad_6 or is_kicad_7 or is_kicad_8):
+if not (is_kicad_6 or is_kicad_7 or is_kicad_8 or is_kicad_9):
     raise ImportError(f"unsupported kicad version {kicad_version}")
 
 
 from FootprintWizardBase_v6 import FootprintWizard as FootprintWizardV6
 from FootprintWizardBase_v7 import FootprintWizard as FootprintWizardV7
 from FootprintWizardBase_v8 import FootprintWizard as FootprintWizardV8
+from FootprintWizardBase_v9 import FootprintWizard as FootprintWizardV9
 
 # why am i doing this junk you ask ? Well, stickytape requires all imports to be present, 
 # and i'm pretty sure conditional imports are not supported. So lets use this workaround :)
-base = FootprintWizardV6 if is_kicad_6 else FootprintWizardV7 if is_kicad_7 else FootprintWizardV8 if is_kicad_8 else None
+base = FootprintWizardV6 if is_kicad_6 else FootprintWizardV7 if is_kicad_7 else FootprintWizardV8 if is_kicad_8 else FootprintWizardV9 if is_kicad_9 else None
 
 from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
 from easyeda2kicad.easyeda.easyeda_importer import EasyedaFootprintImporter, Easyeda3dModelImporter
@@ -266,7 +268,7 @@ class EasyedaWizard(base):
 
             relposxy = lambda x,y: pcbnew.wxPoint(mmi(x), mmi(y))
             posxy = lambda x,y: relposxy(x-self.input.bbox.x, y-self.input.bbox.y)
-        elif is_kicad_7 or is_kicad_8:
+        elif is_kicad_7 or is_kicad_8 or is_kicad_9:
             sizexy = lambda x,y: pcbnew.VECTOR2I(mmi(x), mmi(y))
             
             relposxy = sizexy
@@ -316,7 +318,7 @@ class EasyedaWizard(base):
                     print("PAD: custom shape has no points: ", ee_pad.number)
                     continue
                 
-                if is_kicad_7 or is_kicad_8:
+                if is_kicad_7 or is_kicad_8 or is_kicad_9:
                     polygon = pcbnew.VECTOR_VECTOR2I()
                 else:
                     polygon = pcbnew.wxPoint_Vector()
@@ -329,7 +331,11 @@ class EasyedaWizard(base):
 
 
                 # add polygon as custom shape
-                pad.AddPrimitivePoly(polygon,0,True)
+                if is_kicad_9:
+                    '''AddPrimitivePoly(PAD self, PCB_LAYER_ID aLayer, SHAPE_POLY_SET aPoly, int aThickness, bool aFilled)'''
+                    pad.AddPrimitivePoly(pcbnew.F_Cu,polygon,0,True)
+                else:
+                    pad.AddPrimitivePoly(polygon,0,True)
 
                 # set base shape size to 0,0
                 pad.SetSize(sizexy(0,0))
@@ -350,7 +356,7 @@ class EasyedaWizard(base):
 
             pad.SetName(pinname)
             # Pos0 ?? must be set otherwise all pads will have 0,0 positions AFTER import to footprint editor 
-            if not is_kicad_8:
+            if not (is_kicad_8 or is_kicad_9):
                 pad.SetPos0(posxy(ee_pad.center_x, ee_pad.center_y))
             pad.SetPosition(posxy(ee_pad.center_x, ee_pad.center_y))
             
@@ -363,7 +369,7 @@ class EasyedaWizard(base):
             pad = pcbnew.PAD(self.module)
             pad.SetAttribute(pcbnew.PAD_ATTRIB_NPTH)
 
-            if not is_kicad_8:
+            if not (is_kicad_8 or is_kicad_9):
                 pad.SetPos0(posxy(ee_hole.center_x, ee_hole.center_y))
                 pad.SetPosition(pad.GetPos0())
             else:
@@ -474,7 +480,7 @@ class EasyedaWizard(base):
         # For texts
         for ee_text in self.input.texts:
             text = pcbnew.FP_TEXT(self.module)
-            if not is_kicad_8:
+            if not (is_kicad_8 or is_kicad_9):
                 text.SetPos0(posxy(ee_text.center_x, ee_text.center_y))
                 text.SetPosition(text.GetPos0())
             else:
@@ -498,7 +504,7 @@ class EasyedaWizard(base):
 
             self.module.Add(text)    
         
-        if is_kicad_8:
+        if is_kicad_8 or is_kicad_9:
             #reference and value
             text_size = self.GetTextSize()  # IPC nominal
 
@@ -515,19 +521,19 @@ class EasyedaWizard(base):
         
         # set reference text to be above footprint shapes
         if bb.upperleft:
-            if not is_kicad_8:
+            if not (is_kicad_8 or is_kicad_9):
                 self.module.Reference().SetPos0(self.draw.TransformPoint(bb.upperleft.x, bb.upperleft.y))
                 self.module.Reference().SetPosition(self.module.Reference().GetPos0())
             else:
                 self.module.Reference().SetPosition(self.draw.TransformPoint(bb.upperleft.x, bb.upperleft.y))
-            if is_kicad_7 or is_kicad_8:
+            if is_kicad_7 or is_kicad_8 or is_kicad_9:
                 self.module.Reference().SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_BOTTOM)
             elif is_kicad_6:
                 self.module.Reference().SetVertJustify(pcbnew.GR_TEXT_VJUSTIFY_BOTTOM)
 
         # set LCSC number as description
         number = self.GetParam("Part", "LCSC Number").value
-        if not is_kicad_8:
+        if not (is_kicad_8 or is_kicad_9):
             self.module.SetDescription(number)
         else:
             self.module.SetLibDescription(number)
