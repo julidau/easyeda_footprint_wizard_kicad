@@ -2,7 +2,7 @@
 
 A footprint wizard implementation of the easyeda2kicad-project. Aims to suport 3d model import and footprint generation from a LCSC part number without the "hassle" of calling a CLI tool.
 
-This plugin should work with kicad 9,8,7 and kicad 6.
+This plugin should work with kicad 10, 9, 8, 7 and kicad 6.
 
 # Usage
 
@@ -16,9 +16,11 @@ This package can be installed using the Kicad Content Manager. To do this, downl
 
 # Manual Installation
 
-This wizard needs easyeda2kicad installed as a system lib. It can be installed using pip as described below.
+This wizard needs easyeda2kicad and its dependency expandvars installed as python libs. They can be installed using pip as described below.
 
-You can install easyeda2kicad using pip
+> **Important:** KiCad ships with its own embedded Python interpreter. Packages installed with a system-wide `pip` (or via a separate Python installation) are **not** visible to KiCad. The dependencies must be installed into KiCad's own Python environment using the method below, otherwise the plugin will fail to load with `ModuleNotFoundError: No module named 'expandvars'` or `No module named 'easyeda2kicad'`.
+
+You can install easyeda2kicad (which will pull in expandvars automatically) using pip
 
 ```
 pip install easyeda2kicad
@@ -37,6 +39,6 @@ import pip
 pip.main(["install", "easyeda2kicad"])
 ```
 
-This should take care of installing easyeda2kicad in the right path. It can fail due to insufficient permissions, in this case installing the plugin using the Content Manager is preferred. 
+This installs easyeda2kicad together with its dependency expandvars into KiCad's embedded Python, in the right path. It can fail due to insufficient permissions, in this case installing the plugin using the Content Manager is preferred. 
 
 
