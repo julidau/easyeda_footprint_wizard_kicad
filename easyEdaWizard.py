@@ -9,13 +9,23 @@ import os
 from expandvars import expandvars,UnboundVariable
 
 kicad_version = pcbnew.Version()
-kicad_major = int(kicad_version.split(".")[0]) 
+kicad_major = int(kicad_version.split(".")[0])
 is_kicad_6 = kicad_major == 6
 is_kicad_7 = kicad_major == 7
 is_kicad_8 = kicad_major == 8
-is_kicad_9 = kicad_major == 9
 
-if not (is_kicad_6 or is_kicad_7 or is_kicad_8 or is_kicad_9):
+# --- Semantic capability flags ---------------------------------------------
+# Group versions by the pcbnew API they support, instead of scattering
+# per-version checks across the file. When adding a new KiCad version:
+#   1. bump the floor in the version guard below, and
+#   2. pick the right FootprintWizard base in the `base` selector.
+# The flags below rarely need changing — they track API breaks, not releases.
+USE_VECTOR2I       = kicad_major >= 7   # v7+: wxPoint/wxSize → VECTOR2I, VECTOR_VECTOR2I
+USE_V_ALIGN_CONST  = kicad_major >= 7   # v7+: GR_TEXT_VJUSTIFY_BOTTOM → GR_TEXT_V_ALIGN_BOTTOM
+USE_NEW_POS_API    = kicad_major >= 8   # v8+: SetPos0 no longer needed; SetLibDescription; extra ref text
+USE_POLY_LAYER_ARG = kicad_major >= 9   # v9+: AddPrimitivePoly gained a layer argument
+
+if kicad_major < 6:
     raise ImportError(f"unsupported kicad version {kicad_version}")
 
 
@@ -24,9 +34,24 @@ from FootprintWizardBase_v7 import FootprintWizard as FootprintWizardV7
 from FootprintWizardBase_v8 import FootprintWizard as FootprintWizardV8
 from FootprintWizardBase_v9 import FootprintWizard as FootprintWizardV9
 
-# why am i doing this junk you ask ? Well, stickytape requires all imports to be present, 
+# KiCad 10 ships an unchanged FootprintWizardBase.py in its plugins dir, so we
+# reuse the official copy directly instead of bundling a duplicate v10 file.
+from FootprintWizardBase import FootprintWizard as FootprintWizardV10
+
+# why am i doing this junk you ask ? Well, stickytape requires all imports to be present,
 # and i'm pretty sure conditional imports are not supported. So lets use this workaround :)
-base = FootprintWizardV6 if is_kicad_6 else FootprintWizardV7 if is_kicad_7 else FootprintWizardV8 if is_kicad_8 else FootprintWizardV9 if is_kicad_9 else None
+# NOTE: v10+ reuse KiCad's bundled FootprintWizardBase.py unchanged, so future versions
+# (v11, v12, ...) automatically fall into the V10 branch unless the API breaks again.
+if is_kicad_6:
+    base = FootprintWizardV6
+elif is_kicad_7:
+    base = FootprintWizardV7
+elif is_kicad_8:
+    base = FootprintWizardV8
+elif kicad_major == 9:
+    base = FootprintWizardV9
+else:  # kicad_major >= 10
+    base = FootprintWizardV10
 
 from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
 from easyeda2kicad.easyeda.easyeda_importer import EasyedaFootprintImporter, Easyeda3dModelImporter
@@ -129,8 +154,12 @@ class EasyedaWizard(base):
         if not self.GetParam("Part", "Import 3d Model").value:
             # user did not want 3d model import, so dont
             return
-    
-        self.input.model_3d.convert_to_mm()
+
+        # easyeda2kicad < 1.0 needs an explicit unit conversion here; >= 1.0
+        # does it in the dataclass __post_init__ and no longer exposes
+        # convert_to_mm(), so guard the call to support both versions.
+        if hasattr(self.input.model_3d, "convert_to_mm"):
+            self.input.model_3d.convert_to_mm()
 
         #print("downloading 3d model...")
 
@@ -164,6 +193,9 @@ class EasyedaWizard(base):
             self.model_3d.m_Show = True
 
     def vector3d(x,y,z):
+        # Historical note: the constructor form VECTOR3D(x,y,z) works on v7/v8,
+        # but v9+ require field assignment (the constructor raises on extra args).
+        # v6 also uses the assignment form. Both paths produce the same result.
         if is_kicad_7 or is_kicad_8:
             return pcbnew.VECTOR3D(x,y,z)
 
@@ -198,8 +230,12 @@ class EasyedaWizard(base):
         self.module.Add3DModel(self.model_3d)
 
     def BuildThisFootprint(self):
-        # Convert dimension from easyeda to kicad
-        self.input.bbox.convert_to_mm()
+        # Convert dimension from easyeda to kicad.
+        # easyeda2kicad < 1.0 needs the explicit calls below; >= 1.0 performs
+        # the conversion inside each dataclass __post_init__ and no longer
+        # exposes convert_to_mm(), so guard each call to support both versions.
+        if hasattr(self.input.bbox, "convert_to_mm"):
+            self.input.bbox.convert_to_mm()
 
         for fields in (
             self.input.pads,
@@ -210,8 +246,8 @@ class EasyedaWizard(base):
             self.input.texts,
         ):
             for field in fields:
-                field.convert_to_mm()
-
+                if hasattr(field, "convert_to_mm"):
+                    field.convert_to_mm()
 
         # For pads
         pad_shapes = {
@@ -268,13 +304,11 @@ class EasyedaWizard(base):
 
             relposxy = lambda x,y: pcbnew.wxPoint(mmi(x), mmi(y))
             posxy = lambda x,y: relposxy(x-self.input.bbox.x, y-self.input.bbox.y)
-        elif is_kicad_7 or is_kicad_8 or is_kicad_9:
+        else:  # USE_VECTOR2I (v7+)
             sizexy = lambda x,y: pcbnew.VECTOR2I(mmi(x), mmi(y))
-            
+
             relposxy = sizexy
             posxy = lambda x,y: sizexy(x-self.input.bbox.x, y - self.input.bbox.y)
-        else: 
-            raise RuntimeError("unsupported Kicad Version (5 or lower)")
 
         for ee_pad in self.input.pads:
             shape = get_or(pad_shapes, ee_pad.shape.strip())
@@ -318,7 +352,7 @@ class EasyedaWizard(base):
                     print("PAD: custom shape has no points: ", ee_pad.number)
                     continue
                 
-                if is_kicad_7 or is_kicad_8 or is_kicad_9:
+                if USE_VECTOR2I:
                     polygon = pcbnew.VECTOR_VECTOR2I()
                 else:
                     polygon = pcbnew.wxPoint_Vector()
@@ -331,7 +365,7 @@ class EasyedaWizard(base):
 
 
                 # add polygon as custom shape
-                if is_kicad_9:
+                if USE_POLY_LAYER_ARG:
                     '''AddPrimitivePoly(PAD self, PCB_LAYER_ID aLayer, SHAPE_POLY_SET aPoly, int aThickness, bool aFilled)'''
                     pad.AddPrimitivePoly(pcbnew.F_Cu,polygon,0,True)
                 else:
@@ -356,7 +390,7 @@ class EasyedaWizard(base):
 
             pad.SetName(pinname)
             # Pos0 ?? must be set otherwise all pads will have 0,0 positions AFTER import to footprint editor 
-            if not (is_kicad_8 or is_kicad_9):
+            if not USE_NEW_POS_API:
                 pad.SetPos0(posxy(ee_pad.center_x, ee_pad.center_y))
             pad.SetPosition(posxy(ee_pad.center_x, ee_pad.center_y))
             
@@ -369,7 +403,7 @@ class EasyedaWizard(base):
             pad = pcbnew.PAD(self.module)
             pad.SetAttribute(pcbnew.PAD_ATTRIB_NPTH)
 
-            if not (is_kicad_8 or is_kicad_9):
+            if not USE_NEW_POS_API:
                 pad.SetPos0(posxy(ee_hole.center_x, ee_hole.center_y))
                 pad.SetPosition(pad.GetPos0())
             else:
@@ -480,7 +514,7 @@ class EasyedaWizard(base):
         # For texts
         for ee_text in self.input.texts:
             text = pcbnew.FP_TEXT(self.module)
-            if not (is_kicad_8 or is_kicad_9):
+            if not USE_NEW_POS_API:
                 text.SetPos0(posxy(ee_text.center_x, ee_text.center_y))
                 text.SetPosition(text.GetPos0())
             else:
@@ -504,7 +538,7 @@ class EasyedaWizard(base):
 
             self.module.Add(text)    
         
-        if is_kicad_8 or is_kicad_9:
+        if USE_NEW_POS_API:
             #reference and value
             text_size = self.GetTextSize()  # IPC nominal
 
@@ -521,19 +555,19 @@ class EasyedaWizard(base):
         
         # set reference text to be above footprint shapes
         if bb.upperleft:
-            if not (is_kicad_8 or is_kicad_9):
+            if not USE_NEW_POS_API:
                 self.module.Reference().SetPos0(self.draw.TransformPoint(bb.upperleft.x, bb.upperleft.y))
                 self.module.Reference().SetPosition(self.module.Reference().GetPos0())
             else:
                 self.module.Reference().SetPosition(self.draw.TransformPoint(bb.upperleft.x, bb.upperleft.y))
-            if is_kicad_7 or is_kicad_8 or is_kicad_9:
+            if USE_V_ALIGN_CONST:
                 self.module.Reference().SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_BOTTOM)
             elif is_kicad_6:
                 self.module.Reference().SetVertJustify(pcbnew.GR_TEXT_VJUSTIFY_BOTTOM)
 
         # set LCSC number as description
         number = self.GetParam("Part", "LCSC Number").value
-        if not (is_kicad_8 or is_kicad_9):
+        if not USE_NEW_POS_API:
             self.module.SetDescription(number)
         else:
             self.module.SetLibDescription(number)
